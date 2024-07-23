@@ -1,0 +1,295 @@
+---
+title: "Homework #9: Density Estimation" 
+author: "Mark Stammler"
+format: sys6018hw-html
+---
+
+```{r config, include=FALSE}
+# Set global configurations and settings here
+knitr::opts_chunk$set(error=FALSE, warning=FALSE) # set global chunk options
+ggplot2::theme_set(ggplot2::theme_bw()) # set ggplot2 theme
+```
+
+
+# Required R packages and Directories {.unnumbered .unlisted}
+
+```{r packages, message=FALSE}
+data_dir = 'https://mdporter.github.io/SYS6018/data/' # data directory
+library(ks)        # functions for KDE
+library(tidyverse) # functions for data manipulation   
+library(ggplot2)
+```
+
+### Loading data
+
+```{r Data Loading}
+wd <- "~/School/Data Mining"
+
+setwd (wd)
+
+bat_data <- read.csv("geo_profile.csv")
+crashes <- read.csv("crashes16.csv")
+```
+
+# Problem 1 Geographic Profiling
+
+Geographic profiling, a method developed in criminology, can be used to estimate the [home location (roost) of animals](https://www.sciencedirect.com/science/article/pii/S0022519305004157) based on a collection of sightings. The approach requires an estimate of the distribution the animal will travel from their roost to forage for food. 
+
+A sample of $283$ distances that pipistrelle bats traveled (in meters) from their roost can be found at: 
+
+- **Bat Data**: <`r file.path(data_dir, 'geo_profile.csv')`>
+
+One probability model for the distance these bats will travel is:
+\begin{align*}
+f(x; \theta) = \frac{x}{\theta} \exp \left( - \frac{x^2}{2 \theta} \right)
+\end{align*}
+where the parameter $\theta > 0$ controls how far they are willing to travel. 
+
+
+## a. Derive a closed-form expression for the MLE for $\theta$ (i.e., show the math). 
+
+::: {.callout-note title="Solution"}
+Find MLE of $\theta$ for: 
+
+\begin{align*}
+f(x; \theta) = \frac{x}{\theta} \exp \left( - \frac{x^2}{2 \theta} \right)
+\end{align*}
+
+
+Log-likelihood expression:
+\begin{align*}
+\ln L(x| \theta) & = \ln ( \frac{1}{\theta^n} ) - \frac{1}{2 \theta} \sum_{i = 1}^{n} x_{i}^2 \\
+
+& = -n \ln ( \theta) - \frac{1}{2 \theta} \sum_{i = 1}^{n} x_{i}^2
+\end{align*}
+
+
+Derivative of log-likelihood
+\begin{align*}
+\frac{d}{d \theta} \ln  L(x| \theta) & = - \frac{n}{ \theta} + \frac{1}{2 \theta^2} \sum_{i = 1}^{n} x_{i}^2 = 0 \\
+
+& = -n \theta + \frac{1}{2} \sum_{i = 1}^{n} x_{i}^2 = 0 \\
+
+& \theta = \frac{1}{2n} \sum_{i = 1}^{n} x_{i}^2 = 0
+\end{align*}
+
+
+Therefore MLE of $\theta$ is given by closed expression:
+\begin{align*}
+\hat{ \theta} = \frac{1}{2n} \sum_{i = 1}^{n} x_{i}^2 = 0
+\end{align*}
+:::
+
+
+## b. Estimate $\theta$ for the bat data using MLE? 
+
+Calculate using the solution to part a, or use computational methods.
+
+::: {.callout-note title="Solution"}
+```{r}
+
+# neg log-likelihood function
+# by default, using optim function with log likelihood will minimize function
+# instead, use negative log likelihood to find maximum
+neg_log_likelihood <- function(theta, x) {
+  -sum(x * log(theta) - log(factorial(x)) - theta) 
+}
+
+# Optim function to maximize the likelihood using recommended Brent method (also try: BFGS)
+mle_theta <- optim(par=2, # Initial value for the paramesto be optimized over
+                   neg_log_likelihood, 
+                   x=bat_data, 
+                   lower=min(bat_data), # lower bound in which to search for with method "Brent"
+                   upper=max(bat_data), # upper bound in which to search for with method "Brent"
+                   method="Brent")$par # method="Brent" recommended for one-dimensional problems
+
+cat("Maximum Likelihood Estimate of theta:", mle_theta, "\n")
+
+```
+:::
+
+## c. Plot the estimated density
+
+Using the MLE value of $\theta$ from part b, calculate the estimated density at a set of evaluation points between 0 and 8 meters. Plot the estimated density.
+
+- The x-axis should be distance and y-axis should be density (pdf). 
+
+::: {.callout-note title="Solution"}
+```{r}
+
+evaluation_points <- seq(0, 8, length.out=100)
+
+# function to create pdf for theta
+pdf_theta <- function(x, theta) {
+  return(1/theta * exp(-x^2/(2*theta)))
+}
+
+# get est density over a sequence of points
+estimated_density <- pdf_theta(evaluation_points, mle_theta)
+
+# results into df for plotting
+df <- data.frame(distance=evaluation_points, density=estimated_density)
+
+# Plot the estimated density
+ggplot(df, aes(x=distance, y=density)) +
+  geom_line() +
+  labs(x = "Distance (meters)", y = "Density (PDF)", title = "Estimated Probability Density of Bat Flight Data")
+
+```
+:::
+
+## d. Estimate the density using KDE. 
+
+Report the bandwidth you selected and produce a plot of the estimated density. 
+
+::: {.callout-note title="Solution"}
+```{r}
+
+# using vanilla R density function to calculate KDE
+kde <- density(evaluation_points, bw="ucv") # "ucv"==unbiased cross-validation; options include "bcv", "nrd", "nrd0" 
+
+# Plot the estimated density
+ggplot(data.frame(x=kde$x, y=kde$y), aes(x=x, y=y)) +
+  geom_line() +
+  labs(x = "Distance (meters)", y = "Density", 
+       title = "Kernel Density Estimate of Bat Flight Data",
+       subtitle = sprintf("Bandwidth (Unbiased Cross-Validation): %.3f", kde$bw)) + 
+  theme_minimal()
+
+cat("Bandwidth used:", kde$bw, "\n")
+
+```
+:::
+
+
+## e. Which model do you prefer, the parametric or KDE? 
+
+
+::: {.callout-note title="Solution"}
+The Kernel Density Estimate model is more immediately visually intuitive. A parametric curve is less interpretable; most readers will probably need to apply a degree of effort to translate it.
+:::
+
+# Problem 2: Interstate Crash Density
+
+Interstate 64 (I-64) is a major east-west road that passes just south of Charlottesville. Where and when are the most dangerous places/times to be on I-64? The crash data (link below) gives the mile marker and fractional time-of-week for crashes that occurred on I-64 between mile marker 87 and 136 in 2016. The time-of-week data takes a numeric value of *\<dow\>.\<hour/24\>*, where the dow starts at 0 for Sunday (6 for Sat) and the decimal gives the time of day information. Thus `time=0.0417` corresponds to Sun at 1am and `time=6.5` corresponds to Sat at noon. 
+
+- **Crash Data**: <`r file.path(data_dir, 'crashes16.csv')`>
+
+
+## a. Crash Data
+
+Extract the crashes and make a scatter plot with mile marker on x-axis and time on y-axis. 
+
+::: {.callout-note title="Solution"}
+```{r}
+ggplot(crashes, aes(x=mile, y=time)) +
+  geom_point() +
+  labs(x = "Mile Marker", y = "Day/Time (Fractional) of Week",
+       title = "Scatter Plot of Highway Crashes",
+       subtitle = "Mile markers vs. Fractional Time of Week") +
+  theme_minimal()  
+```
+:::
+
+## b. Use KDE to estimate the *mile marker* density. 
+
+- Report the bandwidth. 
+- Plot the density estimate.
+
+::: {.callout-note title="Solution"}
+```{r}
+
+# using vanilla R density function to calculate KDE
+kde <- density(crashes$mile, bw="bcv") # "bcv"==biased cross-validation; options include "ucv", "nrd", "nrd0" 
+
+# Plot the estimated density
+ggplot(data.frame(x=kde$x, y=kde$y), aes(x=x, y=y)) +
+  geom_line() +
+  labs(x = "Mile Marker", y = "Kernel Density", 
+       title = "Kernel Density Estimate of Crashes Data",
+       subtitle = sprintf("Bandwidth (Biased Cross-Validation): %.3f", kde$bw)) + 
+  theme_minimal()
+
+cat("Bandwidth used:", kde$bw, "\n")
+
+```
+:::
+
+## c. Use KDE to estimate the temporal *time-of-week* density. 
+
+- Report the bandwidth. 
+- Plot the density estimate. 
+
+::: {.callout-note title="Solution"}
+```{r}
+
+# circular library for handling time-of-week data, which is circular (i.e. wraps around)
+library(circular)
+
+crashes$time.rad <- crashes$time * 2 * pi  # Convert time to radians for circular KDE
+time_data_circular <- circular(crashes$time.rad, units="radians")
+
+# estimate bandwidth using Silverman's rule of thumb
+h <- (4/(3*length(time_data_circular)))^(1/5) * sd(time_data_circular)
+
+# estimate kde of circular data using default "nrd0" bw method
+circular_kde <- density.circular(time_data_circular, bw=h)
+
+ggplot(data.frame(x=circular_kde$x, y=circular_kde$y), aes(x=x, y=y)) +
+  geom_line() +
+  labs(x="Time of Week", y="Kernel Density", 
+       title = "Kernel Density Estimate of Time of Week of Crashes",
+       subtitle = sprintf("Bandwidth (Silverman): %.3f", circular_kde$bw)) + 
+  theme_minimal()
+
+cat("Bandwidth used:", circular_kde$bw, "\n")
+
+```
+:::
+
+## d. Use KDE to estimate the bivariate mile-time density. 
+
+- Report the bandwidth parameters.
+- Plot the bivariate density estimate. 
+
+::: {.callout-note title="Solution"}
+```{r}
+
+data_matrix <- as.matrix(data.frame(x=crashes$mile, y=crashes$time))
+
+# Compute bivariate KDE using ks library KDE function
+bivariate_kde <- kde(data_matrix)
+
+# Plot bivariate KDE
+plot(bivariate_kde, display="filled.contour", 
+     main="Bivariate Density Estimate",
+     ylim = c(0, 7),
+     xlab = "Mile Marker", ylab = "Day/Time (Fractional) of Week")
+
+cat("Bandwidth parameters:\n", bivariate_kde$H, "\n")
+
+```
+:::
+
+
+## e. Crash Hotspot
+
+Based on the estimated density, approximate the most dangerous place and time to drive on this stretch of road. Identify the mile marker and time-of-week pair (within a few miles and hours).
+
+::: {.callout-note title="Solution"}
+```{r}
+
+# Find the indices of the maximum density value
+max_indices <- which(bivariate_kde$estimate == max(bivariate_kde$estimate), arr.ind=TRUE)
+
+# Extract the most dangerous point coordinates
+most_dangerous_mile_marker <- bivariate_kde$eval.points[[1]][max_indices[1]]
+most_dangerous_time <- bivariate_kde$eval.points[[2]][max_indices[2]]
+
+# Report the most dangerous place and time
+cat("Most dangerous mile marker:", most_dangerous_mile_marker, "\n")
+cat("Most dangerous time of week:", most_dangerous_time, "≈ Friday 12:46 p.m.\n")
+```
+:::
+    
+

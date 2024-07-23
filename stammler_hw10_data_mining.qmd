@@ -1,0 +1,239 @@
+---
+title: "Homework #10: Clustering" 
+author: "**Your Name Here**"
+format: sys6018hw-html
+---
+
+```{r config, include=FALSE}
+# Set global configurations and settings here
+knitr::opts_chunk$set()                 # set global chunk options
+ggplot2::theme_set(ggplot2::theme_bw()) # set ggplot2 theme
+```
+
+# Required R packages and Directories {.unnumbered .unlisted}
+
+```{r packages, message=FALSE, warning=FALSE}
+data_dir = '~/School/Data Mining/Data' # data directory
+library(mclust)    # for model-based clustering
+library(mixtools)  # for poisson mixture mode
+library(tidyverse) # functions for data manipulation   
+```
+
+# Problem 1: Customer Segmentation with RFM (Recency, Frequency, and Monetary Value)
+
+RFM analysis is an approach that some businesses use to understand their customers' activities. At any point in time, a company can measure how recently a customer purchased a product (Recency), how many times they purchased a product (Frequency), and how much they have spent (Monetary Value). There are many ad-hoc attempts to segment/cluster customers based on the RFM scores (e.g., here is one based on using the customers' rank of each dimension independently: <https://joaocorreia.io/blog/rfm-analysis-increase-sales-by-segmenting-your-customers.html>). In this problem you will use the clustering methods we covered in class to segment the customers.
+
+The data for this problem can be found here: \<`r file.path(data_dir, "RFM.csv")`\>. Cluster based on the Recency, Frequency, and Monetary value columns.
+
+```{r}
+data = read_csv("~/School/Data Mining/Data/RFM.csv")
+```
+
+## a. Implement hierarchical clustering.
+
+-   Describe any pre-processing steps you took (e.g., scaling, distance metric)
+-   State the linkage method you used with justification.
+-   Show the resulting dendrogram
+-   State the number of segments/clusters you used with justification.
+-   Using your segmentation, are customers 1 and 100 in the same cluster?
+
+```{r}
+data_scaled = as.data.frame(scale(data)) 
+# Used ward.D2 linkage to increase sum of squares since we're trying to determine the like characteristics for the separate groups
+data_hc = hclust(dist(data_scaled), method = "ward.D2")
+plot(data_hc, labels = FALSE, main = "Hierarchical Clustering Dendrogram", sub = "", xlab = "")
+
+clusters = cutree(data_hc, k = 4)
+data$Cluster = clusters
+
+data$CustomerID = 1:nrow(data)
+
+# Check cluster membership
+if (nrow(data) >= 100) {  # Ensure there are at least 100 customers
+  same_cluster = data$Cluster[1] == data$Cluster[100]
+  print(paste("Customer 1 and Customer 100 are in the same cluster:", same_cluster))
+} else {
+  print("Not enough customers to check customers 1 and 100.")
+}
+
+```
+
+## b. Implement k-means.
+
+-   Describe any pre-processing steps you took (e.g., scaling)
+-   State the number of segments/clusters you used with justification.
+-   Using your segmentation, are customers 1 and 100 in the same cluster?
+
+```{r}
+set.seed(133) 
+map = map_dbl(1:10, ~kmeans(data_scaled, .x, nstart = 20)$tot.withinss)
+elbow_plot = tibble(Clusters = 1:10, WCSS = map)
+
+# Drops aggressively at 5 and then slows
+elbow_plot %>%
+  ggplot(aes(x = Clusters, y = WCSS)) +
+  geom_line() +
+  geom_point() +
+  theme_minimal() +
+  labs(title = "Elbow Method for Determining Optimal k")
+
+set.seed(133)
+kmeans_result = kmeans(data_scaled, centers = 5, nstart = 25)
+
+data$Cluster2 = kmeans_result$cluster
+
+if(nrow(data) >= 100) {
+  same_cluster2 = data$Cluster2[1] == data$Cluster2[100]
+  print(paste("Customer 1 and Customer 100 are in the same cluster:", same_cluster2))
+} else {
+  print("Customer 1 or 100 does not exist in the dataset.")
+}
+
+```
+
+## c. Implement model-based clustering
+
+-   Describe any pre-processing steps you took (e.g., scaling)
+-   State the number of segments/clusters you used with justification.
+-   Describe the best model. What restrictions are on the shape of the components?
+-   Using your segmentation, are customers 1 and 100 in the same cluster?
+
+```{r}
+data_mb_cluster = Mclust(data_scaled)
+summary(data_mb_cluster)
+
+plot(data_mb_cluster, what = "BIC")
+
+#Best Model, VVE
+data_mb_cluster$modelName
+summary(data_mb_cluster, parameters = TRUE)
+
+
+data$Cluster3 = data_mb_cluster$classification
+
+if(nrow(data) >= 100) {
+  same_cluster = data$Cluster3[1] == data$Cluster3[100]
+  print(paste("Customer 1 and Customer 100 are in the same cluster:", same_cluster))
+} else {
+  print("Customer 1 or 100 does not exist in the dataset.")
+}
+```
+
+## d. Discussion of results
+
+Discuss how you would cluster the customers if you had to do this for your job. Do you think one model would do better than the others?
+
+```{r}
+
+# Model Based clustering, for added flexibility and accuracy on the separate groups. 
+
+```
+
+# Problem 2: Poisson Mixture Model
+
+The pmf of a Poisson random variable is: \begin{align*}
+f_k(x; \lambda_k) = \frac{\lambda_k^x e^{-\lambda_k}}{x!}
+\end{align*}
+
+A two-component Poisson mixture model can be written: \begin{align*}
+f(x; \theta) = \pi \frac{\lambda_1^x e^{-\lambda_1}}{x!} + (1-\pi) \frac{\lambda_2^x e^{-\lambda_2}}{x!}
+\end{align*}
+
+## a. Model parameters
+
+What are the parameters of the model?
+
+::: {.callout-note title="Solution"}
+$$
+\lambda_1 \ , \
+\lambda_2 \ , \ 
+\pi
+$$
+:::
+
+## b. Log-likelihood
+
+Write down the log-likelihood for $n$ independent observations ($x_1, x_2, \ldots, x_n$).
+
+::: {.callout-note title="Solution"}
+$$
+\log L(\theta) = \sum_{i=1}^n  \log \left(\pi \frac{\lambda_1^{x_i} e^{-\lambda_1}}{x_i!} + (1-\pi) \frac{\lambda_2^{x_i} e^{-\lambda_2}}{x_i!}
+\right)
+$$
+:::
+
+## c. Updating the responsibilities
+
+Suppose we have initial values of the parameters. Write down the equation for updating the *responsibilities*.
+
+::: {.callout-note title="Solution"}
+$$
+\pi = \frac 1n \sum_{i=1}^n \gamma({z_i}_1) 
+$$
+:::
+
+## d. Updating the model parameters
+
+Suppose we have responsibilities, $r_{ik}$ for all $i=1, 2, \ldots, n$ and $k=1,2$. Write down the equations for updating the parameters.
+
+::: {.callout-note title="Solution"}
+$$
+\pi = \frac 1n \sum_{i=1}^n {r_i}_1
+$$
+:::
+
+## e. Fit a two-component Poisson mixture model
+
+Fit a two-component Poisson mixture model. Report the estimated parameter values and show a plot of the estimated mixture pmf for the following data:
+
+```{r, echo=TRUE}
+#-- Run this code to generate the data
+set.seed(123)             # set seed for reproducibility
+n = 200                   # sample size
+z = sample(1:2, size=n, replace=TRUE, prob=c(.25, .75)) # sample the latent class
+theta = c(8, 16)          # true parameters
+y = ifelse(z==1, rpois(n, lambda=theta[1]), rpois(n, lambda=theta[2]))
+```
+
+-   Note: The function `poisregmixEM()` in the R package `mixtools` is designed to estimate a mixture of *Poisson regression* models. We can still use this function for our problem of pmf estimation if it is recast as an intercept-only regression. To do so, set the $x$ argument (predictors) to `x = rep(1, length(y))` and `addintercept = FALSE`.
+    -   Look carefully at the output from this model. The outputs use different names/symbols than what we used in the course notes. The `beta` values (regression coefficients) are on the log scale.
+
+```{r}
+result = poisregmixEM(y, x = rep(1, length(y)), addintercept = FALSE, k = 2)
+# Extract parameters and convert from log scale
+lambda_estimates = exp(result$beta)
+# Mixing proportions
+pi_estimates = result$lambda
+
+# Print the results
+print(paste("Estimated lambda1:", lambda_estimates[1]))
+print(paste("Estimated lambda2:", lambda_estimates[2]))
+print(paste("Estimated pi1:", pi_estimates[1]))
+print(paste("Estimated pi2:", pi_estimates[2]))
+
+x_vals = 0:max(y)
+pmf = pi_estimates[1] * dpois(x_vals, lambda_estimates[1]) + 
+      pi_estimates[2] * dpois(x_vals, lambda_estimates[2])
+
+# Create data frame for plotting
+plot_data = data.frame(Counts = x_vals, PMF = pmf)
+
+# Plotting
+ggplot(plot_data, aes(x = Counts, y = PMF)) +
+    geom_point() +
+    geom_line(group = 1, colour = "blue") +
+    labs(title = "Estimated Poisson Mixture Model PMF",
+         x = "Count",
+         y = "Probability")
+```
+
+## f. **2 pts Extra Credit** EM from scratch
+
+Write a function that estimates this two-component Poisson mixture model using the EM approach. Show that it gives the same result as part *e*.
+
+-   Note: you are not permitted to copy code. Write everything from scratch and use comments to indicate how the code works (e.g., the E-step, M-step, initialization strategy, and convergence should be clear).
+-   Cite any resources you consulted to help with the coding.
+
+::: {.callout-note title="Solution"}
+Add solution here
+:::
