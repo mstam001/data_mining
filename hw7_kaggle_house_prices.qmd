@@ -1,0 +1,229 @@
+---
+title: "Homework #7: Stacking and Boosting " 
+format: sys6018hw-html
+---
+
+
+```{r, message=FALSE}
+library(ranger) # I put all the libraries in this code chunk for the entire file so that it is a little cleaner 
+library(tidyverse)
+library(readr)
+library(dplyr)
+library(mice)
+library(MASS)
+library(randomForest)
+library(xgboost)
+library(caret)
+# Load test and train csv 
+train_data = read_csv('~/School/Data Mining/train.csv') # Changed file path so that it would open on my computer
+test_data = read_csv('~/School/Data Mining/test.csv')
+
+```
+```{r}
+combined <- rbind(train_data, test_data)
+
+# Perform one-hot encoding
+encoded_combined <- model.matrix(~ . - 1, data = combined)
+
+# Separate back into train and test
+train_encoded <- encoded_combined[1:nrow(train), ]
+test_encoded <- encoded_combined[(nrow(train) + 1):nrow(combined), ]
+
+train_encoded_df = as.data.frame(train_encoded)
+test_encoded_df = as.data.frame(test_encdoded)
+
+#colnames(train_encoded_df)[colnames(train_encoded_df) == "MSZoningC (all)"] <- "MSZoningCall"
+#colnames(test_encoded_df)[colnames(test_encoded_df) == "MSZoningC (all)"] <- "MSZoningCall"
+#names(train_encoded_df) <- make.names(names(train_encoded_df))
+#names(test_encoded_df) <- make.names(names(test_encoded_df))
+
+```
+
+```{r, message=FALSE}
+# TRAIN
+# Perform multiple imputation
+imputed_data <- mice(train_data)  # m = number of imputations
+
+# Complete the imputed data
+completed_data <- complete(imputed_data)
+
+# Convert to dataframe
+train_complete <- as.data.frame(completed_data)
+
+train_complete[is.na(train_complete)] = FALSE
+
+
+# TEST 
+imputed_data2 <- mice(test_data)  # m = number of imputations
+
+# Complete the imputed data
+completed_data2 <- complete(imputed_data2)
+
+# Convert to dataframe
+test_complete <- as.data.frame(completed_data2)
+
+test_complete[is.na(test_complete)] = FALSE
+print(test_complete)
+print(train_complete)
+
+
+```{r}
+train_encoded_df
+test_encoded_df
+```
+
+```{r, message=FALSE}
+set.seed(2023)   # set seed to reproducible
+K = 10           # number of folds
+folds = rep(1:K, length=nrow(train_encoded_df)) %>% sample() # make folds
+
+# Run cross-validation
+set.seed(192)
+SSE = numeric(K)
+for(k in 1:K){
+  rf = ranger(SalePrice ~ ., data = train_encoded_df)
+  yhat = predict(rf, test_encoded_df)$predictions
+  SSE[k] = sum( (yhat - train_encoded_df$SalePrice)^2 )
+}
+MSE = sum(SSE) / nrow(train_encoded_df)
+(RMSE = sqrt(MSE) )
+```
+
+```{r}
+tune_grid = expand_grid(
+  mtry = seq(34),
+  min.bucket = 1
+)
+M = 10  # number of repeats
+
+#: Repeated OOB analysis
+RMSE = tibble()               # initiate results df
+for(m in 1:M) {
+  # print(paste("starting m =", m, "of", M))
+  for(i in 1:nrow(tune_grid)) {
+    mtry = tune_grid$mtry[i]
+    min.bucket = tune_grid$min.bucket[i]
+    rf = ranger(SalePrice~., data=train_complete, 
+                mtry = mtry, min.bucket = min.bucket, 
+                num.trees = 5000,
+                seed = m)             # ensure same bagging for all mtry
+    out = tibble(mtry, min.bucket,
+           rmse = sqrt(rf$prediction.error), 
+           iter = m)
+    RMSE = bind_rows(RMSE, out)
+  }
+}
+```
+
+```{r}
+# Aggregate Results
+RMSE_agg = RMSE %>% 
+  group_by(mtry, min.bucket) %>% 
+  summarize(n=n(), se = sd(rmse)/sqrt(n), rmse = mean(rmse), .groups="drop")
+
+RMSE_agg %>% slice_min(rmse, n = 6) %>% knitr::kable()
+```
+
+```{r}
+# Plot Results
+RMSE_agg %>% 
+  mutate(min.bucket = factor(min.bucket)) %>% # make into factor for plotting
+  ggplot(aes(mtry, rmse, color=min.bucket)) + 
+  geom_point() + geom_line() +
+  geom_ribbon(aes(ymin=rmse-2*se, ymax=rmse+2*se, 
+                  color=NULL, fill=min.bucket),
+              alpha=.1, show.legend = FALSE) 
+```
+
+
+
+```{r}
+# Additional Code - Emily
+# Updated version of Mark's code to include additional code such as submission file format 
+
+# Perform multiple imputation on train_data
+imputed_data <- mice(train_data)  # m = number of imputations
+
+# Complete the imputed data
+completed_data <- complete(imputed_data)
+
+# Convert to dataframe
+train_complete <- as.data.frame(completed_data)
+
+train_complete[is.na(train_complete)] <- FALSE
+
+# Perform multiple imputation on test_data
+imputed_data2 <- mice(test_data)  # m = number of imputations
+
+# Complete the imputed data
+completed_data2 <- complete(imputed_data2)
+
+# Convert to dataframe
+test_complete <- as.data.frame(completed_data2)
+
+test_complete[is.na(test_complete)] <- FALSE
+
+set.seed(2023)   # set seed to reproducible
+K <- 10           # number of folds
+folds <- rep(1:K, length = nrow(train_complete)) %>% sample() # make folds
+
+# Run cross-validation
+set.seed(192)
+SSE <- numeric(K)
+for(k in 1:K){
+  rf <- ranger(SalePrice ~ ., data = train_complete[folds != k, ])
+  yhat <- predict(rf, train_complete[folds == k, ])$predictions
+  SSE[k] <- sum((yhat - train_complete$SalePrice[folds == k])^2)
+}
+MSE <- sum(SSE) / nrow(train_complete)
+RMSE <- sqrt(MSE)
+
+tune_grid <- expand_grid(
+  mtry = seq(34),
+  min.bucket = 1
+)
+M <- 10  # number of repeats
+
+# Repeated OOB analysis
+RMSE_df <- tibble()               # initiate results df
+for(m in 1:M) {
+  for(i in 1:nrow(tune_grid)) {
+    mtry <- tune_grid$mtry[i]
+    min.bucket <- tune_grid$min.bucket[i]
+    rf <- ranger(SalePrice ~ ., data=train_complete, 
+                mtry = mtry, min.bucket = min.bucket, 
+                num.trees = 5000,
+                seed = m)             # ensure same bagging for all mtry
+    out <- tibble(mtry, min.bucket,
+                 rmse = sqrt(rf$prediction.error), 
+                 iter = m)
+    RMSE_df <- bind_rows(RMSE_df, out)
+  }
+}
+
+# Aggregate Results
+RMSE_agg <- RMSE_df %>% 
+  group_by(mtry, min.bucket) %>% 
+  summarize(n=n(), se = sd(rmse)/sqrt(n), rmse = mean(rmse), .groups="drop")
+```
+```{r}
+# Model averaging
+best_params <- RMSE_agg %>% 
+  slice_min(rmse, n = 6) %>%
+  select(mtry, min.bucket) %>%
+  unlist()
+predictions <- numeric(length(test_complete$SalePrice))
+for (k in 1:K) {
+  rf <- ranger(SalePrice ~ ., data = train_complete[folds != k, ], mtry = best_params[1], min.bucket = best_params[2], num.trees = 5000)
+  predictions <- predictions + predict(rf, test_complete)$predictions
+}
+predictions <- predictions / K  # average predictions over all folds
+
+# Calculate RMSE for test data
+test_RMSE <- sqrt(mean((predictions - test_complete$SalePrice)^2))
+test_RMSE
+
+# Submission file generated following the format required
+submission <- data.frame(Id = test_complete$Id, SalePrice = predictions)
+write.csv(submission, file = "submission.csv", row.names = FALSE)
+```
