@@ -1,7 +1,5 @@
 ---
 title: "Homework #10: Clustering" 
-author: "**Your Name Here**"
-format: sys6018hw-html
 ---
 
 ```{r config, include=FALSE}
