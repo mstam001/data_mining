@@ -1,6 +1,6 @@
 ---
-title: "Homework #6: Trees and Random Forest" 
-author: "Mark Stammler"
+title: "Trees and Random Forest" 
+author: "Mark S"
 format: sys6018hw-html
 ---
 
