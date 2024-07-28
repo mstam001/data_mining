@@ -1,5 +1,5 @@
 ---
-title: "Homework #10: Clustering" 
+title: "Clustering" 
 ---
 
 ```{r config, include=FALSE}
