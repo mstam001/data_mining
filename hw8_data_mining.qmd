@@ -1,7 +1,6 @@
 ---
 title: "Homework #8: Feature Engineering and Importance" 
-author: "Mark Stammler"
-format: sys6018hw-html
+author: "Mark"
 ---
 
 ```{r config, include=FALSE}
